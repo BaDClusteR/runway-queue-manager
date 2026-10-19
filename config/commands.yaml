@@ -1,0 +1,12 @@
+services:
+  Runway\QueueManager\Command\InstallQueueCommand:
+    tags:
+      - name: console.command
+
+  Runway\QueueManager\Command\ListJobsCommand:
+    tags:
+      - name: console.command
+
+  Runway\QueueManager\Command\WorkQueueCommand:
+    tags:
+      - name: console.command

@@ -1,0 +1,13 @@
+parameters:
+  # The table of the jobs, without the prefix (see IQueueStorage).
+  queue_table: 'jobs'
+
+  # The queue the jobs go to by default, the worker runs it by default (see IJobQueue::enqueue(), IQueueWorker::run()).
+  queue_default: 'main'
+
+  # The lock files of the workers, "<queue>.lock": one worker runs a queue at a time (see IQueueWorker). Empty:
+  # var/queue of the project (PROJECT_ROOT, or the current folder).
+  queue_lock_folder: ''
+
+  # The console script the worker is started with (see IQueueWorkerLauncher). Empty: "console" of the project.
+  queue_console_path: ''

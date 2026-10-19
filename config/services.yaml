@@ -1,0 +1,36 @@
+# The job queue. The job handlers are the services of the project with the "queue.job_handler" tag (see IJobHandler).
+
+services:
+  Runway\QueueManager\Storage\IQueueStorage:
+    class: Runway\QueueManager\Storage\QueueStorage
+    arguments:
+      # The own database of the queue table; without it, the database of the application.
+      dsn: '#QUEUE_DSN'
+      user: '#QUEUE_DB_USER'
+      password: '#QUEUE_DB_PASSWORD'
+      tablePrefix: '#QUEUE_DB_PREFIX'
+      table: '%queue_table'
+
+  Runway\QueueManager\Storage\IQueueSchema:
+    class: Runway\QueueManager\Storage\QueueSchema
+
+  Runway\QueueManager\IJobQueue:
+    class: Runway\QueueManager\JobQueue
+    arguments:
+      defaultQueue: '%queue_default'
+
+  Runway\QueueManager\IQueueWorker:
+    class: Runway\QueueManager\QueueWorker
+    arguments:
+      defaultQueue: '%queue_default'
+      lockFolder: '%queue_lock_folder'
+
+  Runway\QueueManager\IQueueWorkerLauncher:
+    class: Runway\QueueManager\QueueWorkerLauncher
+    arguments:
+      enabled: '#QUEUE_WORKER_AUTOSTART'
+      phpBinary: '#QUEUE_PHP_BINARY'
+      consolePath: '%queue_console_path'
+
+  Runway\QueueManager\Handler\IJobHandlerProvider:
+    class: Runway\QueueManager\Handler\JobHandlerProvider

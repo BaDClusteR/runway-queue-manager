@@ -1,0 +1,31 @@
+{
+  "name": "bad_cluster/runway-queue-manager",
+  "type": "library",
+  "description": "Background job queue for Runway: the jobs in a database table, one worker at a time, progress and cancellation",
+  "keywords": ["runway", "queue", "jobs", "worker"],
+  "license": "MIT",
+  "authors": [
+    {"name": "BaD ClusteR", "email": "admin@badcluster.ru"}
+  ],
+  "require": {
+    "php": ">=8.4",
+    "ext-json": "*",
+    "ext-pdo": "*",
+    "bad_cluster/runway": "dev-main",
+    "bad_cluster/runway-console-app": "dev-main"
+  },
+  "require-dev": {
+    "roave/security-advisories": "dev-latest",
+    "phpunit/phpunit": "^13.4",
+    "ext-pdo_sqlite": "*"
+  },
+  "autoload": {
+    "psr-4": {"Runway\\QueueManager\\": "src/"},
+    "files": ["bootstrap.php"]
+  },
+  "autoload-dev": {
+    "psr-4": {"Runway\\QueueManager\\Tests\\": "tests/"}
+  },
+  "minimum-stability": "dev",
+  "prefer-stable": true
+}
