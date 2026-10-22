@@ -77,12 +77,13 @@ class JobQueue implements IJobQueue {
 
         // A job cancelled between the two queries is not claimed: the next one is tried.
         while ($jobId = $driver->getFirstScalarResult(
-            "SELECT id FROM {$this->table()} WHERE status = :queued AND $condition ORDER BY id LIMIT 1",
-            [...$params, 'queued' => JobStatus::QUEUED->value]
+            "SELECT id FROM {$this->table()} WHERE status = :queued AND available <= :now AND $condition"
+            . ' ORDER BY id LIMIT 1',
+            [...$params, 'queued' => JobStatus::QUEUED->value, 'now' => time()]
         )) {
             $now = time();
             $driver->execute(
-                "UPDATE {$this->table()} SET status = :running, started = :now, updated = :now"
+                "UPDATE {$this->table()} SET status = :running, attempts = attempts + 1, started = :now, updated = :now"
                 . ' WHERE id = :id AND status = :queued',
                 [
                     'running' => JobStatus::RUNNING->value,
@@ -133,6 +134,26 @@ class JobQueue implements IJobQueue {
 
     public function fail(int $jobId, string $error): void {
         $this->finish($jobId, JobStatus::FAILED, ['error' => $error]);
+    }
+
+    /**
+     * The progress of the failed attempt is dropped: the next one starts over.
+     */
+    public function retry(int $jobId, string $error, int $delay): void {
+        $now = time();
+
+        $this->getDriver()->execute(
+            "UPDATE {$this->table()} SET status = :queued, error = :error, progress = NULL, started = NULL,"
+            . ' available = :available, updated = :now WHERE id = :id AND status = :running',
+            [
+                'queued'    => JobStatus::QUEUED->value,
+                'running'   => JobStatus::RUNNING->value,
+                'error'     => $error,
+                'available' => $now + max(0, $delay),
+                'id'        => $jobId,
+                'now'       => $now,
+            ]
+        );
     }
 
     public function markCancelled(int $jobId): void {
@@ -200,6 +221,22 @@ class JobQueue implements IJobQueue {
         }
 
         return $count;
+    }
+
+    public function listFinishedBefore(int $finishedBefore, int $limit = 100): array {
+        return array_map(
+            $this->toDTO(...),
+            $this->getDriver()->getResult(
+                "SELECT * FROM {$this->table()} WHERE status IN (:done, :failed, :cancelled)"
+                . ' AND finished < :before ORDER BY finished, id LIMIT ' . max(1, $limit),
+                [
+                    'done'      => JobStatus::DONE->value,
+                    'failed'    => JobStatus::FAILED->value,
+                    'cancelled' => JobStatus::CANCELLED->value,
+                    'before'    => $finishedBefore,
+                ]
+            )
+        );
     }
 
     public function delete(int $jobId): void {
@@ -280,7 +317,10 @@ class JobQueue implements IJobQueue {
             isCancelRequested: (bool)$row['is_cancel_requested'],
             created: (int)$row['created'],
             started: ($row['started'] !== null) ? (int)$row['started'] : null,
-            finished: ($row['finished'] !== null) ? (int)$row['finished'] : null
+            finished: ($row['finished'] !== null) ? (int)$row['finished'] : null,
+            // A table of an older version has no such columns until a worker starts (see IQueueSchema::install()).
+            attempts: (int)($row['attempts'] ?? 0),
+            available: (int)($row['available'] ?? 0)
         );
     }
 

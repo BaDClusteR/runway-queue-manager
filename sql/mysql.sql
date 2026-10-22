@@ -11,6 +11,8 @@ CREATE TABLE IF NOT EXISTS `{jobs}` (
     result MEDIUMTEXT NULL,
     error TEXT NULL,
     is_cancel_requested TINYINT(1) NOT NULL DEFAULT 0,
+    attempts INT UNSIGNED NOT NULL DEFAULT 0,
+    available INT UNSIGNED NOT NULL DEFAULT 0,
     created INT UNSIGNED NOT NULL,
     started INT UNSIGNED NULL,
     finished INT UNSIGNED NULL,

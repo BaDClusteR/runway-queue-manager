@@ -21,7 +21,8 @@ interface IQueueWorker {
      * @param bool                                     $once    Run one job only.
      * @param string[]|null                            $queues  The default queue if not set.
      *
-     * @return int|null The jobs run, null if another worker is running one of the queues.
+     * @return int|null The job runs (a retry without a delay is run by the same worker, every attempt counts), null if
+     *                  another worker is running one of the queues.
      *
      * @throws RuntimeException If a lock file cannot be created.
      * @throws InvalidQueueNameException

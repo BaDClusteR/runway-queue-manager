@@ -12,7 +12,8 @@ use Runway\QueueManager\Exception\UnsupportedDatabaseException;
  */
 interface IQueueSchema {
     /**
-     * Creates the table, unless it exists.
+     * Creates the table, unless it exists, and adds the columns of the newer versions of the library to a table made
+     * by an older one. The worker calls it when it starts: an update of the library needs no manual step.
      *
      * @throws UnsupportedDatabaseException
      * @throws DBException
@@ -20,7 +21,7 @@ interface IQueueSchema {
     public function install(): void;
 
     /**
-     * The statements install() runs (with the table placeholders: the driver adds the prefix).
+     * The statements install() runs to create the table (with the table placeholders: the driver adds the prefix).
      *
      * @return string[]
      *

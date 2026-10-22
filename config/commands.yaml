@@ -10,3 +10,7 @@ services:
   Runway\QueueManager\Command\WorkQueueCommand:
     tags:
       - name: console.command
+
+  Runway\QueueManager\Command\PruneQueueCommand:
+    tags:
+      - name: console.command

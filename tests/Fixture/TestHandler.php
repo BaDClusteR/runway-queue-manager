@@ -16,6 +16,9 @@ final class TestHandler extends AJobHandler {
     /** @var JobDTO[] */
     public array $handled = [];
 
+    /** @var JobDTO[] The jobs cleaned up (see IJobHandler::cleanUp()). */
+    public array $cleanedUp = [];
+
     /**
      * @param Closure(JobDTO, JobContext): array $handle
      * @param string[]                           $secretKeys
@@ -38,5 +41,9 @@ final class TestHandler extends AJobHandler {
         $this->handled[] = $job;
 
         return ($this->handle)($job, $context);
+    }
+
+    public function cleanUp(JobDTO $job): void {
+        $this->cleanedUp[] = $job;
     }
 }

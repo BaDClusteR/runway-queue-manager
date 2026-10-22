@@ -18,6 +18,10 @@ CREATE TABLE IF NOT EXISTS `{jobs}` (
     error TEXT,
     -- A running job is cancelled by the handler, at its next progress report.
     is_cancel_requested INTEGER NOT NULL DEFAULT 0,
+    -- The runs of the job: a failed one is run again if its handler retries (see IRetryingJobHandler).
+    attempts INTEGER NOT NULL DEFAULT 0,
+    -- Unix timestamp: a queued job is not run before it (the delay of a retry).
+    available INTEGER NOT NULL DEFAULT 0,
     -- Unix timestamps.
     created INTEGER NOT NULL,
     started INTEGER,

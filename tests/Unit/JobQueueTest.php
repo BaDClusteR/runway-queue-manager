@@ -6,10 +6,12 @@ namespace Runway\QueueManager\Tests\Unit;
 
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
+use Runway\QueueManager\DTO\JobDTO;
 use Runway\QueueManager\Enum\JobStatus;
 use Runway\QueueManager\Exception\InvalidQueueNameException;
 use Runway\QueueManager\JobQueue;
 use Runway\QueueManager\Storage\IQueueStorage;
+use Runway\QueueManager\Storage\QueueSchema;
 use Runway\QueueManager\Tests\Fixture\TestStorage;
 
 /**
@@ -154,6 +156,103 @@ class JobQueueTest extends TestCase {
     }
 
     /**
+     * A retried job is queued again with its error, and is not claimed before its time.
+     */
+    #[DataProvider('storageProvider')]
+    public function testRetry(string $database): void {
+        $queue = $this->createQueue($database);
+        $job = $queue->enqueue('a');
+        $queue->claimNext();
+        $queue->setProgress($job->id, ['step' => 1]);
+
+        $queue->retry($job->id, 'Timeout', 3600);
+
+        $retried = $queue->get($job->id);
+        self::assertSame(JobStatus::QUEUED, $retried->status);
+        self::assertSame('Timeout', $retried->error);
+        self::assertSame(1, $retried->attempts);
+        self::assertNull($retried->progress);
+        self::assertNull($retried->started);
+        self::assertGreaterThanOrEqual(time() + 3590, $retried->available);
+        self::assertNull($queue->claimNext());
+
+        // Only a running job is retried.
+        $queue->retry($job->id, 'Again', 0);
+        self::assertSame('Timeout', $queue->get($job->id)->error);
+
+        $queue->requestCancel($job->id);
+        self::assertSame(JobStatus::CANCELLED, $queue->get($job->id)->status);
+    }
+
+    #[DataProvider('storageProvider')]
+    public function testRetryWithoutDelayIsClaimedAgain(string $database): void {
+        $queue = $this->createQueue($database);
+        $job = $queue->enqueue('a');
+        self::assertSame(1, $queue->claimNext()->attempts);
+
+        $queue->retry($job->id, 'Timeout', 0);
+
+        $claimed = $queue->claimNext();
+        self::assertSame($job->id, $claimed->id);
+        self::assertSame(2, $claimed->attempts);
+    }
+
+    #[DataProvider('storageProvider')]
+    public function testListFinishedBefore(string $database): void {
+        $storage = $this->createStorage($database);
+        $queue = new JobQueue($storage);
+        $done = $this->finishJob($queue, 'done');
+        $failed = $this->finishJob($queue, 'failed');
+        $cancelled = $queue->enqueue('a');
+        $queue->requestCancel($cancelled->id);
+        $recent = $this->finishJob($queue, 'done');
+        $queued = $queue->enqueue('a');
+        $running = $queue->enqueue('a');
+        $queue->claimNext();
+        $queue->claimNext();
+        $old = time() - 86400;
+        $storage->getDriver()->execute(
+            "UPDATE {$storage->getTable()} SET finished = :old WHERE id IN ($done->id, $failed->id, $cancelled->id)",
+            ['old' => $old]
+        );
+
+        self::assertSame(
+            [$done->id, $failed->id, $cancelled->id],
+            array_column($queue->listFinishedBefore(time() - 3600), 'id')
+        );
+        self::assertSame([$done->id], array_column($queue->listFinishedBefore(time() - 3600, 1), 'id'));
+        self::assertCount(4, $queue->listFinishedBefore(time() + 1));
+        self::assertNotContains($queued->id, array_column($queue->listFinishedBefore(time() + 1), 'id'));
+        self::assertNotContains($running->id, array_column($queue->listFinishedBefore(time() + 1), 'id'));
+        self::assertNotContains($recent->id, array_column($queue->listFinishedBefore(time() - 3600), 'id'));
+    }
+
+    /**
+     * A table of an older version of the library gets the new columns.
+     */
+    #[DataProvider('storageProvider')]
+    public function testSchemaUpgrade(string $database): void {
+        $storage = $this->createStorage($database);
+        $schema = new QueueSchema($storage);
+        $driver = $storage->getDriver();
+        $driver->execute("DROP TABLE {$storage->getTable()}");
+
+        foreach ($schema->getStatements() as $statement) {
+            $driver->execute((string)preg_replace('/^\s*(attempts|available) .*\n/m', '', $statement));
+        }
+
+        $queue = new JobQueue($storage);
+        $old = $queue->enqueue('a');
+        self::assertSame(0, $old->attempts);
+
+        $schema->install();
+        $schema->install();
+
+        self::assertSame($old->id, $queue->claimNext()->id);
+        self::assertSame(1, $queue->get($old->id)->attempts);
+    }
+
+    /**
      * Another table name and prefix: the schema and the queries use them.
      */
     #[DataProvider('storageProvider')]
@@ -168,6 +267,14 @@ class JobQueueTest extends TestCase {
             1,
             (int)$storage->getDriver()->getFirstScalarResult('SELECT COUNT(*) FROM `x_tasks`')
         );
+    }
+
+    protected function finishJob(JobQueue $queue, string $status): JobDTO {
+        $job = $queue->enqueue('a');
+        $queue->claimNext();
+        ($status === 'done') ? $queue->complete($job->id, []) : $queue->fail($job->id, 'Error');
+
+        return $job;
     }
 
     protected function createQueue(string $database): JobQueue {

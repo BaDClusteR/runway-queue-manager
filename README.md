@@ -14,10 +14,12 @@ php console queue:install    # creates the table, unless it exists
 The queue uses the database of the application (its `DSN`, `DB_USER`, `DB_PASSWORD`, `DB_PREFIX`), or its own one
 (`QUEUE_DSN`, see Configuration). `queue:install --print` shows the SQL instead (see `sql/`).
 
-Cron, in case the worker could not be started (a second worker of a queue exits at once):
+Cron, in case the worker could not be started (a second worker of a queue exits at once), for the delayed retries
+(see Retries), and to delete the old finished jobs (see Pruning):
 
 ```
 * * * * * cd /path/to/project && php console queue:work > /dev/null 2>&1
+30 4 * * * cd /path/to/project && php console queue:prune > /dev/null 2>&1
 ```
 
 ## Jobs
@@ -87,11 +89,45 @@ Only one worker runs a queue at a time (the lock file `var/queue/<queue>.lock`):
 server would not cope with several ones at once. The workers of different queues run side by side. The jobs left
 "running" by a worker that has died (e.g. killed for the memory) fail when the next worker of the queue starts.
 
+## Retries
+
+A job fails at once by default. A handler whose jobs are worth another try (e.g. a notification sent to a service
+that is down for a while) implements `IRetryingJobHandler`: the delays before the retries, in seconds.
+
+```php
+class SlackMessageJobHandler extends AJobHandler implements IRetryingJobHandler {
+    // Up to 4 runs: the 2nd one a minute after the 1st one fails, then in 5 and 30 minutes.
+    public function getRetryDelays(): array {
+        return [60, 300, 1800];
+    }
+    // ...
+}
+```
+
+A failed job is queued again with the error of the attempt, and is not run before its delay: the worker does not wait
+for it, the cron one runs it (a retry without a delay is run by the same worker). `JobDTO::$attempts` counts the runs.
+The failed attempts are logged as info, only the last failure is an error. The job ID is in the context of the log
+record, not in its text: the failures of a type read the same (e.g. a log watcher of the application can group them,
+and an alert about a failed notification does not become a new notification that fails too). The secret payload keys
+of a retried job stay until it's done, failed or cancelled: the next attempt needs them.
+
+## Pruning
+
+The finished jobs (done, failed, cancelled) are kept for their results and errors; `queue:prune` deletes the ones
+finished more than `--days` (30) ago, with what they have made (`IJobHandler::cleanUp()`). A queue of many small jobs
+would grow for ever without it.
+
+## Upgrading
+
+A newer version of the library may add columns to the table: the worker adds them when it starts (and so does
+`queue:install`), no manual step is needed. Until then, the jobs are added and read as before.
+
 ## Console
 
 - `queue:work [--queue=a,b] [--once]`: runs the queued jobs until there are none.
 - `queue:list [--queue=a,b] [--limit=20]`: the recent jobs.
-- `queue:install [--print]`: creates the table.
+- `queue:prune [--days=30]`: deletes the old finished jobs.
+- `queue:install [--print]`: creates the table, or adds the columns of a newer version to it.
 
 ## Configuration
 

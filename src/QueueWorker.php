@@ -8,25 +8,35 @@ use Runway\Exception\RuntimeException;
 use Runway\Logger\ILogger;
 use Runway\QueueManager\DTO\JobDTO;
 use Runway\QueueManager\Exception\JobCancelledException;
+use Runway\QueueManager\Handler\IJobHandler;
 use Runway\QueueManager\Handler\IJobHandlerProvider;
+use Runway\QueueManager\Handler\IRetryingJobHandler;
+use Runway\QueueManager\Storage\IQueueSchema;
 use Throwable;
 
 /**
  * The worker holds an exclusive lock of a file of every queue it runs ("<queue>.lock") while it runs: so a second
  * worker of a queue exits at once, and the jobs of a queue left "running" without the lock are the jobs of a worker
  * that has died (see IJobQueue::failRunning()). The workers of different queues run side by side.
+ *
+ * A failed job of a retrying handler (see IRetryingJobHandler) is queued again with a delay, and logged as info: only
+ * its last failure is an error. The job ID is in the context of the log record, not in its text: the repeated failures
+ * read the same (e.g. a log watcher of the application can group them).
  */
 class QueueWorker implements IQueueWorker {
     /**
-     * @param string      $defaultQueue The queue run by the worker without the queues.
-     * @param string|null $lockFolder   Empty: var/queue of the project (PROJECT_ROOT, or the current folder).
+     * @param string            $defaultQueue The queue run by the worker without the queues.
+     * @param string|null       $lockFolder   Empty: var/queue of the project (PROJECT_ROOT, or the current folder).
+     * @param IQueueSchema|null $schema       Updates the table of an older version of the library when the worker
+     *                                        starts; null - it's up to date.
      */
     public function __construct(
         protected IJobQueue           $queue,
         protected IJobHandlerProvider $handlerProvider,
         protected ILogger             $logger,
         protected string              $defaultQueue = 'main',
-        protected ?string             $lockFolder = null
+        protected ?string             $lockFolder = null,
+        protected ?IQueueSchema       $schema = null
     ) {
         if ((string)$this->lockFolder === '') {
             $this->lockFolder = (defined('PROJECT_ROOT') ? (string)constant('PROJECT_ROOT') : (string)getcwd())
@@ -43,6 +53,7 @@ class QueueWorker implements IQueueWorker {
         }
 
         try {
+            $this->schema?->install();
             $failedCount = $this->queue->failRunning('The worker stopped while running the job.', $queues);
 
             if ($failedCount && $onEvent) {
@@ -89,8 +100,14 @@ class QueueWorker implements IQueueWorker {
             return;
         }
 
-        $this->queue->removePayloadKeys($job->id, $handler->getSecretPayloadKeys());
-        $log('started.');
+        // A job to be retried needs its secrets for the next attempt: they are removed when it's over.
+        $isRetrying = $handler instanceof IRetryingJobHandler;
+
+        if (!$isRetrying) {
+            $this->removeSecrets($job, $handler);
+        }
+
+        $log(($job->attempts > 1) ? "started, attempt $job->attempts." : 'started.');
 
         try {
             $this->queue->complete($job->id, $handler->handle($job, new JobContext($this->queue, $job->id)));
@@ -99,12 +116,49 @@ class QueueWorker implements IQueueWorker {
             $this->queue->markCancelled($job->id);
             $log('cancelled.');
         } catch (Throwable $e) {
-            $this->logger->error(
-                "Job #$job->id ($job->type) failed: {$e->getMessage()}",
-                ['exception' => get_debug_type($e), 'trace' => $e->getTraceAsString()]
-            );
+            $context = [
+                'jobId'     => $job->id,
+                'attempt'   => $job->attempts,
+                'exception' => get_debug_type($e),
+                'trace'     => $e->getTraceAsString(),
+            ];
+            $delay = $this->getRetryDelay($job, $handler);
+
+            if ($delay !== null) {
+                $this->logger->info("Job of type \"$job->type\" failed, to be retried: {$e->getMessage()}", $context);
+                $this->queue->retry($job->id, $e->getMessage(), $delay);
+                $log("failed, retry in {$delay}s: {$e->getMessage()}");
+
+                return;
+            }
+
+            $this->logger->error("Job of type \"$job->type\" failed: {$e->getMessage()}", $context);
             $this->queue->fail($job->id, $e->getMessage());
             $log("failed: {$e->getMessage()}");
+        }
+
+        if ($isRetrying) {
+            $this->removeSecrets($job, $handler);
+        }
+    }
+
+    /**
+     * @return int|null The delay before the next attempt (seconds), null if the job is not retried.
+     */
+    protected function getRetryDelay(JobDTO $job, IJobHandler $handler): ?int {
+        if (!$handler instanceof IRetryingJobHandler) {
+            return null;
+        }
+
+        // The 1st attempt has failed: the 1st delay.
+        $delay = array_values($handler->getRetryDelays())[$job->attempts - 1] ?? null;
+
+        return ($delay !== null) ? max(0, (int)$delay) : null;
+    }
+
+    protected function removeSecrets(JobDTO $job, IJobHandler $handler): void {
+        if ($keys = $handler->getSecretPayloadKeys()) {
+            $this->queue->removePayloadKeys($job->id, $keys);
         }
     }
 

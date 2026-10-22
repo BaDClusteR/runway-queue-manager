@@ -13,13 +13,38 @@ class QueueSchema implements IQueueSchema {
         'mysql'  => 'mysql.sql',
     ];
 
+    /**
+     * The columns added by the newer versions of the library (they are in the schema files too): PDO driver => column
+     * => its definition for ALTER TABLE ... ADD COLUMN.
+     */
+    protected const array ADDED_COLUMNS = [
+        'sqlite' => [
+            'attempts'  => 'INTEGER NOT NULL DEFAULT 0',
+            'available' => 'INTEGER NOT NULL DEFAULT 0',
+        ],
+        'mysql'  => [
+            'attempts'  => 'INT UNSIGNED NOT NULL DEFAULT 0',
+            'available' => 'INT UNSIGNED NOT NULL DEFAULT 0',
+        ],
+    ];
+
     public function __construct(
         protected IQueueStorage $storage
     ) {}
 
     public function install(): void {
+        $driver = $this->storage->getDriver();
+
         foreach ($this->getStatements() as $statement) {
-            $this->storage->getDriver()->execute($statement);
+            $driver->execute($statement);
+        }
+
+        $existing = $this->getColumns();
+
+        foreach (static::ADDED_COLUMNS[$this->storage->getDriverName()] ?? [] as $column => $definition) {
+            if (!in_array($column, $existing, true)) {
+                $driver->execute("ALTER TABLE {$this->storage->getTable()} ADD COLUMN $column $definition");
+            }
         }
     }
 
@@ -41,6 +66,18 @@ class QueueSchema implements IQueueSchema {
             static fn(string $statement): string => str_replace('{jobs}', '{' . $table . '}', $statement),
             $statements
         ));
+    }
+
+    /**
+     * @return string[] The column names of the queue table.
+     */
+    protected function getColumns(): array {
+        $table = $this->storage->getTable();
+        $driver = $this->storage->getDriver();
+
+        return ($this->storage->getDriverName() === 'sqlite')
+            ? array_column($driver->getResult("PRAGMA table_info($table)"), 'name')
+            : array_column($driver->getResult("SHOW COLUMNS FROM $table"), 'Field');
     }
 
     protected function getSchemaFolder(): string {

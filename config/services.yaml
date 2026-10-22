@@ -24,6 +24,11 @@ services:
     arguments:
       defaultQueue: '%queue_default'
       lockFolder: '%queue_lock_folder'
+      # Updates the table of an older version of the library when the worker starts.
+      schema: '@Runway\QueueManager\Storage\IQueueSchema'
+
+  Runway\QueueManager\IQueuePruner:
+    class: Runway\QueueManager\QueuePruner
 
   Runway\QueueManager\IQueueWorkerLauncher:
     class: Runway\QueueManager\QueueWorkerLauncher

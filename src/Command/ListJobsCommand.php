@@ -8,6 +8,7 @@ use Runway\Console\Input\IInput;
 use Runway\Console\Output\IOutput;
 use Runway\Console\Parameter\Enum\ParameterModeEnum;
 use Runway\QueueManager\DTO\JobDTO;
+use Runway\QueueManager\Enum\JobStatus;
 use Runway\QueueManager\IJobQueue;
 
 class ListJobsCommand extends AQueueCommand {
@@ -45,7 +46,12 @@ class ListJobsCommand extends AQueueCommand {
                     $output->escape($job->queue),
                     $output->escape($job->type),
                     $job->status->value
-                        . (($job->isCancelRequested && !$job->status->isFinished()) ? ' (cancelling)' : ''),
+                        . (($job->isCancelRequested && !$job->status->isFinished()) ? ' (cancelling)' : '')
+                        // A job waiting for its retry: the error is of the failed attempt.
+                        . (($job->status === JobStatus::QUEUED && $job->attempts)
+                            ? ' (retry at ' . date('H:i:s', $job->available) . ')'
+                            : '')
+                        . (($job->attempts > 1) ? ", $job->attempts attempts" : ''),
                     date('Y-m-d H:i:s', $job->created),
                     ($job->finished !== null) ? date('Y-m-d H:i:s', $job->finished) : '',
                     $output->escape((string)$job->error),

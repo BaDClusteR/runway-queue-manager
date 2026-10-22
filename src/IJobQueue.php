@@ -42,7 +42,8 @@ interface IJobQueue {
     public function list(int $limit = 50, ?array $queues = null): array;
 
     /**
-     * Marks the oldest queued job of the queues running and returns it.
+     * Marks the oldest queued job of the queues running and returns it. A job waiting for its retry (see retry()) is
+     * not claimed before its time.
      *
      * @param string[]|null $queues The default queue if not set.
      *
@@ -72,6 +73,15 @@ interface IJobQueue {
      * @throws DBException
      */
     public function fail(int $jobId, string $error): void;
+
+    /**
+     * Queues a failed running job again, to be run after the delay (see IRetryingJobHandler).
+     *
+     * @param string $error The error of the failed attempt: the job has it until it's run again.
+     *
+     * @throws DBException
+     */
+    public function retry(int $jobId, string $error, int $delay): void;
 
     /**
      * Marks a running job cancelled (when its handler has stopped).
@@ -106,6 +116,18 @@ interface IJobQueue {
      * @throws InvalidQueueNameException
      */
     public function failRunning(string $error, ?array $queues = null): int;
+
+    /**
+     * The finished jobs (done, failed, cancelled) of all the queues, finished before the time: to delete the old ones
+     * (see IQueuePruner).
+     *
+     * @param int $finishedBefore Unix timestamp.
+     *
+     * @return JobDTO[] The oldest first.
+     *
+     * @throws DBException
+     */
+    public function listFinishedBefore(int $finishedBefore, int $limit = 100): array;
 
     /**
      * @throws DBException
