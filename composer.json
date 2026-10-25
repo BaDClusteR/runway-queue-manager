@@ -11,8 +11,8 @@
     "php": ">=8.4",
     "ext-json": "*",
     "ext-pdo": "*",
-    "bad_cluster/runway": "dev-main",
-    "bad_cluster/runway-console-app": "dev-main"
+    "bad_cluster/runway": "^2.0.1",
+    "bad_cluster/runway-console-app": "^1.0.1"
   },
   "require-dev": {
     "roave/security-advisories": "dev-latest",
@@ -36,8 +36,6 @@
     "phpstan": "phpstan --memory-limit=1G",
     "infection": "infection --threads=max"
   },
-  "minimum-stability": "dev",
-  "prefer-stable": true,
   "config": {
     "sort-packages": true,
     "allow-plugins": {

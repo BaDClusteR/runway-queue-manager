@@ -4,12 +4,14 @@ A background job queue for [Runway](https://github.com/BaDClusteR/runway): the j
 or MySQL / MariaDB), a worker runs them one by one, reports their progress and gets their cancellation. Made for small
 servers: no daemon, no broker; the worker is started when a job is added, and by cron as a fallback.
 
-## Installation
-
-```bash
-composer require bad_cluster/runway-queue-manager
+```shell
+composer require bad_cluster/runway-queue-manager:^1.0
 php console queue:install    # creates the table, unless it exists
 ```
+
+PHP 8.4+, Runway 2 (`bad_cluster/runway:^2.0.1`), Runway Console App (`bad_cluster/runway-console-app:^1.0.1`).
+
+## Installation
 
 The queue uses the database of the application (its `DSN`, `DB_USER`, `DB_PASSWORD`, `DB_PREFIX`), or its own one
 (`QUEUE_DSN`, see Configuration). `queue:install --print` shows the SQL instead (see `sql/`).
@@ -71,6 +73,10 @@ Then `IJobQueue::get()` has its status (`queued`, `running`, `done`, `failed`, `
 the error; `requestCancel()` cancels it (a running job stops at its next progress report), `delete()` deletes it
 (`IJobHandler::cleanUp()` is for what the job has made).
 
+The secret payload keys (`getSecretPayloadKeys()`) are removed from the database when the job starts, when it's
+cancelled before it starts, and when its worker dies. They are not in the logged traces either: the traces of the
+failed jobs are logged without the argument values.
+
 ## Queues
 
 Every job is in a queue, `main` by default (the `queue_default` parameter). A worker runs one queue, or several ones:
@@ -88,6 +94,8 @@ php console queue:work --queue=main,media
 Only one worker runs a queue at a time (the lock file `var/queue/<queue>.lock`): the jobs are often heavy, and a small
 server would not cope with several ones at once. The workers of different queues run side by side. The jobs left
 "running" by a worker that has died (e.g. killed for the memory) fail when the next worker of the queue starts.
+
+A queue name is 1-50 letters, digits, `.`, `_` and `-`: it's a part of a lock file name and of a command line.
 
 ## Retries
 
@@ -126,7 +134,8 @@ A newer version of the library may add columns to the table: the worker adds the
 
 - `queue:work [--queue=a,b] [--once]`: runs the queued jobs until there are none.
 - `queue:list [--queue=a,b] [--limit=20]`: the recent jobs.
-- `queue:prune [--days=30]`: deletes the old finished jobs.
+- `queue:prune [--days=30]`: deletes the old finished jobs (`--days` must be a non-negative integer: a typo is an
+  error, not 0 days).
 - `queue:install [--print]`: creates the table, or adds the columns of a newer version to it.
 
 ## Configuration
@@ -135,7 +144,8 @@ The ENV variables (see `.env`, override them in the project):
 
 - `QUEUE_DSN`, `QUEUE_DB_USER`, `QUEUE_DB_PASSWORD`, `QUEUE_DB_PREFIX`: the own database of the queue table. Empty
   `QUEUE_DSN`: the database of the application.
-- `QUEUE_WORKER_AUTOSTART`: `false` - the worker is started by cron only.
+- `QUEUE_WORKER_AUTOSTART`: `false` - the worker is started by cron only. On Windows, the worker is never started in
+  the background (no shell for it): run `queue:work` by the Task Scheduler.
 - `QUEUE_PHP_BINARY`: the PHP CLI binary the worker is started with. By default, the one next to the PHP of the web
   server.
 
@@ -147,12 +157,18 @@ The parameters:
   current folder).
 - `queue_console_path`: the console script the worker is started with, `console` of the project by default.
 
-## Tests
+## Development
 
-```bash
-vendor/bin/phpunit
+```shell
+composer test               # PHPUnit: the unit, integration and E2E tests
+composer test:unit          # the classes one by one, SQLite in memory
+composer test:integration   # the container in the process
+composer test:e2e           # a project with its console script: the workers in separate processes
+composer phpstan            # PHPStan, the max level
+composer infection          # mutation testing of the unit tests (pcov or Xdebug)
 ```
 
-The queue tests run on SQLite in memory, and on MySQL / MariaDB too if `QUEUE_TEST_MYSQL_DSN` is set (e.g.
-`mysql:unix_socket=/tmp/mysql.sock;dbname=queue_test`, with `QUEUE_TEST_MYSQL_USER` and `QUEUE_TEST_MYSQL_PASSWORD`).
-The test table is dropped and created again.
+The tests need the `pdo_sqlite` extension. The queue tests run on MySQL / MariaDB too if `QUEUE_TEST_MYSQL_DSN` is set
+(e.g. `mysql:unix_socket=/tmp/mysql.sock;dbname=queue_test`, with `QUEUE_TEST_MYSQL_USER` and
+`QUEUE_TEST_MYSQL_PASSWORD`): the test table is dropped and created again. The CI runs the tests on Linux, macOS and
+Windows with PHP 8.4 and 8.5, and on MySQL 8.4 and MariaDB 11.8.
