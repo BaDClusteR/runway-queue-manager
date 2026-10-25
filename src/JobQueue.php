@@ -5,11 +5,13 @@ declare(strict_types=1);
 namespace Runway\QueueManager;
 
 use JsonException;
+use Runway\DataStorage\Exception\DBException;
 use Runway\DataStorage\IDataStorageDriver;
 use Runway\Exception\RuntimeException;
 use Runway\QueueManager\DTO\JobDTO;
 use Runway\QueueManager\Enum\JobStatus;
 use Runway\QueueManager\Exception\InvalidQueueNameException;
+use Runway\QueueManager\Handler\IJobHandlerProvider;
 use Runway\QueueManager\Storage\IQueueStorage;
 
 /**
@@ -22,14 +24,20 @@ class JobQueue implements IJobQueue {
     protected const int JSON_FLAGS = JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR;
 
     /**
-     * @param string $defaultQueue The queue of the jobs added without one, run by a worker without the queues.
+     * @param string                   $defaultQueue    The queue of the jobs added without one, run by a worker
+     *                                                  without the queues.
+     * @param IJobHandlerProvider|null $handlerProvider The handlers of the jobs, for their secret payload keys (see
+     *                                                  requestCancel() and failRunning()); null - they are kept.
      */
     public function __construct(
-        protected IQueueStorage $storage,
-        protected string        $defaultQueue = 'main'
+        protected IQueueStorage        $storage,
+        protected string               $defaultQueue = 'main',
+        protected ?IJobHandlerProvider $handlerProvider = null
     ) {}
 
     /**
+     * @param array<mixed> $payload
+     *
      * @throws JsonException
      */
     public function enqueue(string $type, array $payload = [], ?string $queue = null): JobDTO {
@@ -93,7 +101,7 @@ class JobQueue implements IJobQueue {
                 ]
             );
 
-            $job = $this->get((int)$jobId);
+            $job = $this->get($this->toInt($jobId));
 
             if ($job?->status === JobStatus::RUNNING) {
                 return $job;
@@ -119,6 +127,8 @@ class JobQueue implements IJobQueue {
     }
 
     /**
+     * @param array<mixed> $progress
+     *
      * @throws JsonException
      */
     public function setProgress(int $jobId, array $progress): void {
@@ -126,6 +136,8 @@ class JobQueue implements IJobQueue {
     }
 
     /**
+     * @param array<mixed> $result
+     *
      * @throws JsonException
      */
     public function complete(int $jobId, array $result): void {
@@ -188,9 +200,14 @@ class JobQueue implements IJobQueue {
 
         $job = $this->get($jobId);
 
-        return $job !== null
-            && ($job->status === JobStatus::CANCELLED
-                || ($job->status === JobStatus::RUNNING && $job->isCancelRequested));
+        if ($job?->status === JobStatus::CANCELLED) {
+            // The secrets of a job that will not run (a running one's are removed by the worker).
+            $this->removeSecrets($job);
+
+            return true;
+        }
+
+        return $job?->status === JobStatus::RUNNING && $job->isCancelRequested;
     }
 
     public function isCancelRequested(int $jobId): bool {
@@ -206,21 +223,24 @@ class JobQueue implements IJobQueue {
         $running = [...$params, 'running' => JobStatus::RUNNING->value];
         // Only the worker that has just taken the locks of the queues calls it: no job of them starts between the two
         // queries.
-        $count = (int)$driver->getFirstScalarResult(
-            "SELECT COUNT(*) FROM {$this->table()} WHERE status = :running AND $condition",
-            $running
+        $jobs = array_map(
+            $this->toDTO(...),
+            $driver->getResult("SELECT * FROM {$this->table()} WHERE status = :running AND $condition", $running)
         );
 
-        if ($count) {
+        if ($jobs) {
             $now = time();
             $driver->execute(
                 "UPDATE {$this->table()} SET status = :failed, error = :error, finished = :now, updated = :now"
                 . " WHERE status = :running AND $condition",
                 [...$running, 'failed' => JobStatus::FAILED->value, 'error' => $error, 'now' => $now]
             );
+
+            // The job of a retrying handler has its secrets while it runs (see IQueueWorker).
+            array_map($this->removeSecrets(...), $jobs);
         }
 
-        return $count;
+        return count($jobs);
     }
 
     public function listFinishedBefore(int $finishedBefore, int $limit = 100): array {
@@ -304,34 +324,61 @@ class JobQueue implements IJobQueue {
             : ['1 = 0', []];
     }
 
+    /**
+     * @param array<string, mixed> $row The values come typed by the driver: SQLite has integers, MySQL - strings.
+     */
     protected function toDTO(array $row): JobDTO {
         return new JobDTO(
-            id: (int)$row['id'],
-            queue: (string)$row['queue'],
-            type: (string)$row['type'],
-            status: JobStatus::tryFrom((string)$row['status']) ?? JobStatus::FAILED,
+            id: $this->toInt($row['id']),
+            queue: $this->toString($row['queue']),
+            type: $this->toString($row['type']),
+            status: JobStatus::tryFrom($this->toString($row['status'])) ?? JobStatus::FAILED,
             payload: $this->decode($row['payload']) ?? [],
             progress: $this->decode($row['progress']),
             result: $this->decode($row['result']),
-            error: ($row['error'] !== null) ? (string)$row['error'] : null,
+            error: ($row['error'] !== null) ? $this->toString($row['error']) : null,
             isCancelRequested: (bool)$row['is_cancel_requested'],
-            created: (int)$row['created'],
-            started: ($row['started'] !== null) ? (int)$row['started'] : null,
-            finished: ($row['finished'] !== null) ? (int)$row['finished'] : null,
+            created: $this->toInt($row['created']),
+            started: ($row['started'] !== null) ? $this->toInt($row['started']) : null,
+            finished: ($row['finished'] !== null) ? $this->toInt($row['finished']) : null,
             // A table of an older version has no such columns until a worker starts (see IQueueSchema::install()).
-            attempts: (int)($row['attempts'] ?? 0),
-            available: (int)($row['available'] ?? 0)
+            attempts: $this->toInt($row['attempts'] ?? 0),
+            available: $this->toInt($row['available'] ?? 0)
         );
     }
 
+    /**
+     * @return array<mixed>|null Null if it's empty or not a JSON array / object.
+     */
     protected function decode(mixed $json): ?array {
-        if ($json === null || $json === '') {
+        if (!is_string($json) || $json === '') {
             return null;
         }
 
-        $data = json_decode((string)$json, true);
+        $data = json_decode($json, true);
 
         return is_array($data) ? $data : null;
+    }
+
+    protected function toInt(mixed $value): int {
+        return is_numeric($value) ? (int)$value : 0;
+    }
+
+    protected function toString(mixed $value): string {
+        return is_scalar($value) ? (string)$value : '';
+    }
+
+    /**
+     * See IJobHandler::getSecretPayloadKeys(): without the handler (e.g. the type is unknown), the payload is kept.
+     *
+     * @throws DBException
+     */
+    protected function removeSecrets(JobDTO $job): void {
+        $keys = $this->handlerProvider?->getHandler($job->type)?->getSecretPayloadKeys();
+
+        if ($keys) {
+            $this->removePayloadKeys($job->id, $keys);
+        }
     }
 
     protected function table(): string {

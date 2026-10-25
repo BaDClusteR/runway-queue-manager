@@ -12,6 +12,8 @@ use Runway\QueueManager\Enum\JobStatus;
 use Runway\QueueManager\IJobQueue;
 
 class ListJobsCommand extends AQueueCommand {
+    protected const int DEFAULT_LIMIT = 20;
+
     public function __construct(
         protected IJobQueue $queue
     ) {}
@@ -26,11 +28,21 @@ class ListJobsCommand extends AQueueCommand {
 
     protected function configure(): void {
         $this->addQueueOption('Only the jobs of these queues, comma-separated (all the queues if not set)')
-             ->addOption('limit', 'l', ParameterModeEnum::VALUE_REQUIRED, 'How many jobs to show', '20');
+             ->addOption(
+                 'limit',
+                 'l',
+                 ParameterModeEnum::VALUE_REQUIRED,
+                 'How many jobs to show',
+                 (string)static::DEFAULT_LIMIT
+             );
     }
 
     protected function execute(IInput $input, IOutput $output): int {
-        $jobs = $this->queue->list(max(1, (int)$input->getOption('limit')), $this->getQueues($input));
+        $jobs = $this->queue->list(
+            // 0 is 1 (see IJobQueue::list()).
+            $this->getNonNegativeIntOption($input, 'limit', static::DEFAULT_LIMIT),
+            $this->getQueues($input)
+        );
 
         if (!$jobs) {
             $output->info('There are no jobs.');

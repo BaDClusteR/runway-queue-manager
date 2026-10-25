@@ -11,7 +11,8 @@ use Runway\QueueManager\Exception\InvalidQueueNameException;
  * letters, digits, ".", "_" and "-" only.
  */
 final class QueueName {
-    protected const string PATTERN = '/^[A-Za-z0-9._-]{1,50}$/';
+    // "D": "$" is the end of the string, not a line break before it (e.g. "main\n").
+    protected const string PATTERN = '/^[A-Za-z0-9._-]{1,50}$/D';
 
     /**
      * @throws InvalidQueueNameException

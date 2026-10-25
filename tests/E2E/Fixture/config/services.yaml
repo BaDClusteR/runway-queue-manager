@@ -1,0 +1,26 @@
+# The handlers and the commands of the E2E project (see tests/Support/Project).
+
+services:
+  Runway\QueueManager\Tests\Fixture\EchoJobHandler:
+    tags:
+      - name: queue.job_handler
+
+  Runway\QueueManager\Tests\E2E\Fixture\SleepJobHandler:
+    tags:
+      - name: queue.job_handler
+
+  Runway\QueueManager\Tests\E2E\Fixture\RetryingSleepJobHandler:
+    tags:
+      - name: queue.job_handler
+
+  Runway\QueueManager\Tests\E2E\Fixture\FailJobHandler:
+    tags:
+      - name: queue.job_handler
+
+  Runway\QueueManager\Tests\E2E\Fixture\EnqueueCommand:
+    tags:
+      - name: console.command
+
+  Runway\QueueManager\Tests\E2E\Fixture\CancelCommand:
+    tags:
+      - name: console.command

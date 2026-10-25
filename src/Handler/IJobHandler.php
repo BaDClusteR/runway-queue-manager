@@ -29,7 +29,7 @@ interface IJobHandler {
     /**
      * @param JobContext $context To report the progress (and to find out that the job is cancelled).
      *
-     * @return array The result to store (JSON-encodable), e.g. the details of the made file.
+     * @return array<mixed> The result to store (JSON-encodable), e.g. the details of the made file.
      *
      * @throws JobCancelledException If the job is cancelled: the handler stops.
      * @throws Throwable The job fails with its message.

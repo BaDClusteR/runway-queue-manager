@@ -7,7 +7,11 @@ namespace Runway\QueueManager\Storage;
 use Runway\QueueManager\Exception\UnsupportedDatabaseException;
 
 class QueueSchema implements IQueueSchema {
-    /** PDO driver => the schema file. MariaDB has the "mysql" driver too. */
+    /**
+     * PDO driver => the schema file. MariaDB has the "mysql" driver too.
+     *
+     * @var array<string, string>
+     */
     protected const array SCHEMA_FILES = [
         'sqlite' => 'sqlite.sql',
         'mysql'  => 'mysql.sql',
@@ -16,6 +20,8 @@ class QueueSchema implements IQueueSchema {
     /**
      * The columns added by the newer versions of the library (they are in the schema files too): PDO driver => column
      * => its definition for ALTER TABLE ... ADD COLUMN.
+     *
+     * @var array<string, array<string, string>>
      */
     protected const array ADDED_COLUMNS = [
         'sqlite' => [
@@ -75,9 +81,11 @@ class QueueSchema implements IQueueSchema {
         $table = $this->storage->getTable();
         $driver = $this->storage->getDriver();
 
-        return ($this->storage->getDriverName() === 'sqlite')
+        $columns = ($this->storage->getDriverName() === 'sqlite')
             ? array_column($driver->getResult("PRAGMA table_info($table)"), 'name')
             : array_column($driver->getResult("SHOW COLUMNS FROM $table"), 'Field');
+
+        return array_values(array_filter($columns, is_string(...)));
     }
 
     protected function getSchemaFolder(): string {

@@ -40,7 +40,7 @@ class PruneQueueCommand extends AQueueCommand {
     }
 
     protected function execute(IInput $input, IOutput $output): int {
-        $days = max(0, (int)($input->getOption('days') ?? static::DEFAULT_DAYS));
+        $days = $this->getNonNegativeIntOption($input, 'days', static::DEFAULT_DAYS);
         $count = $this->pruner->prune(time() - $days * 86400);
 
         $output->success("Jobs deleted: $count.");

@@ -18,9 +18,9 @@ final class RetryingTestHandler extends AJobHandler implements IRetryingJobHandl
     public array $handled = [];
 
     /**
-     * @param Closure(JobDTO, JobContext): array $handle
-     * @param int[]                              $delays
-     * @param string[]                           $secretKeys
+     * @param Closure(JobDTO, JobContext): array<mixed> $handle
+     * @param int[]                                      $delays
+     * @param string[]                                   $secretKeys
      */
     public function __construct(
         protected string  $type,

@@ -1,0 +1,10 @@
+# The job handlers of the integration tests (see tests/Integration).
+
+services:
+  Runway\QueueManager\Tests\Fixture\EchoJobHandler:
+    tags:
+      - name: queue.job_handler
+
+  Runway\QueueManager\Tests\Fixture\SecretJobHandler:
+    tags:
+      - name: queue.job_handler

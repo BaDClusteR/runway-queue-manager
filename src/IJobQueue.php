@@ -16,9 +16,9 @@ use Runway\QueueManager\Exception\InvalidQueueNameException;
  */
 interface IJobQueue {
     /**
-     * @param string      $type    The handler type, see IJobHandler::getType().
-     * @param array       $payload The job parameters (JSON-encodable).
-     * @param string|null $queue   The default queue if not set.
+     * @param string       $type    The handler type, see IJobHandler::getType().
+     * @param array<mixed> $payload The job parameters (JSON-encodable).
+     * @param string|null  $queue   The default queue if not set.
      *
      * @throws DBException
      * @throws InvalidQueueNameException
@@ -32,6 +32,7 @@ interface IJobQueue {
     public function get(int $jobId): ?JobDTO;
 
     /**
+     * @param int           $limit  At least 1 (a smaller one is 1).
      * @param string[]|null $queues Only the jobs of these queues; null - of all the queues.
      *
      * @return JobDTO[] The newest first.
@@ -60,11 +61,15 @@ interface IJobQueue {
     public function removePayloadKeys(int $jobId, array $keys): void;
 
     /**
+     * @param array<mixed> $progress
+     *
      * @throws DBException
      */
     public function setProgress(int $jobId, array $progress): void;
 
     /**
+     * @param array<mixed> $result
+     *
      * @throws DBException
      */
     public function complete(int $jobId, array $result): void;
@@ -91,7 +96,8 @@ interface IJobQueue {
     public function markCancelled(int $jobId): void;
 
     /**
-     * A queued job is cancelled at once, a running one is cancelled by its handler (see JobContext).
+     * A queued job is cancelled at once (without its secret payload keys, see IJobHandler::getSecretPayloadKeys()),
+     * a running one is cancelled by its handler (see JobContext).
      *
      * @return bool False if the job is already finished.
      *
@@ -107,6 +113,7 @@ interface IJobQueue {
     /**
      * Fails the running jobs of the queues whose worker is gone (e.g. killed for the memory): only one worker runs a
      * queue at a time, so the worker that has just started knows that there are no other ones.
+     * The secret payload keys of the jobs are removed (the job of a retrying handler keeps them while it runs).
      *
      * @param string[]|null $queues The default queue if not set.
      *

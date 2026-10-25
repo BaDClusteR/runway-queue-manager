@@ -25,8 +25,8 @@ class JobContext {
     ) {}
 
     /**
-     * @param array $progress Any JSON-encodable data, e.g. the stage and the done part.
-     * @param bool  $force    Write it anyway, e.g. at the start of a new stage.
+     * @param array<mixed> $progress Any JSON-encodable data, e.g. the stage and the done part.
+     * @param bool         $force    Write it anyway, e.g. at the start of a new stage.
      *
      * @throws JobCancelledException If the job is cancelled: the handler should stop (it's checked at every write).
      * @throws DBException

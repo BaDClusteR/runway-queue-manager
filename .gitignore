@@ -1,7 +1,11 @@
 vendor/
-composer.lock
 .phpunit.result.cache
-.phpunit.cache/
 .env.local
 .idea/
 .DS_Store
+
+# A library: the dependencies are resolved by the project
+composer.lock
+
+# The caches of PHPUnit, PHPStan and Infection
+var/

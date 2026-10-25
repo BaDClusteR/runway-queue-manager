@@ -11,7 +11,7 @@ use Runway\Logger\ILogger;
  * Remembers the records: [level, message, context].
  */
 final class TestLogger implements ILogger {
-    /** @var array{string, string, array}[] */
+    /** @var array{string, string, array<mixed>}[] */
     public array $records = [];
 
     public function setLogLevel(LogLevelEnum $level): static {

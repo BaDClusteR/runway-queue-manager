@@ -40,10 +40,10 @@ class QueueStorage implements IQueueStorage {
             if ($this->hasOwnDatabase()) {
                 $driver = new PDO($this->envVariablesProvider, $this->eventDispatcher);
                 $driver->connect(new DataStorageConnectionOptionsDTO(
-                    dsn: (string)$this->dsn,
-                    user: ((string)$this->user !== '') ? (string)$this->user : null,
-                    password: ((string)$this->password !== '') ? (string)$this->password : null,
-                    tableNamePrefix: (string)$this->tablePrefix
+                    dsn: $this->toString($this->dsn),
+                    user: ($this->toString($this->user) !== '') ? $this->toString($this->user) : null,
+                    password: ($this->toString($this->password) !== '') ? $this->toString($this->password) : null,
+                    tableNamePrefix: $this->toString($this->tablePrefix)
                 ));
 
                 $this->driver = $driver;
@@ -60,12 +60,16 @@ class QueueStorage implements IQueueStorage {
     }
 
     public function getDriverName(): string {
-        $dsn = $this->hasOwnDatabase() ? (string)$this->dsn : $this->getDriver()->getConnectOptions()->dsn;
+        $dsn = $this->hasOwnDatabase() ? $this->toString($this->dsn) : $this->getDriver()->getConnectOptions()->dsn;
 
         return strtolower((string)strstr($dsn, ':', true));
     }
 
     public function hasOwnDatabase(): bool {
-        return trim((string)$this->dsn) !== '';
+        return trim($this->toString($this->dsn)) !== '';
+    }
+
+    protected function toString(mixed $value): string {
+        return is_scalar($value) ? (string)$value : '';
     }
 }

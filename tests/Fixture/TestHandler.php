@@ -20,8 +20,8 @@ final class TestHandler extends AJobHandler {
     public array $cleanedUp = [];
 
     /**
-     * @param Closure(JobDTO, JobContext): array $handle
-     * @param string[]                           $secretKeys
+     * @param Closure(JobDTO, JobContext): array<mixed> $handle
+     * @param string[]                                   $secretKeys
      */
     public function __construct(
         protected string  $type,

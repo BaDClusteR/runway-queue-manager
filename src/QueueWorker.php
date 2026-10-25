@@ -39,8 +39,7 @@ class QueueWorker implements IQueueWorker {
         protected ?IQueueSchema       $schema = null
     ) {
         if ((string)$this->lockFolder === '') {
-            $this->lockFolder = (defined('PROJECT_ROOT') ? (string)constant('PROJECT_ROOT') : (string)getcwd())
-                . '/var/queue';
+            $this->lockFolder = $this->getProjectRoot() . '/var/queue';
         }
     }
 
@@ -120,7 +119,7 @@ class QueueWorker implements IQueueWorker {
                 'jobId'     => $job->id,
                 'attempt'   => $job->attempts,
                 'exception' => get_debug_type($e),
-                'trace'     => $e->getTraceAsString(),
+                'trace'     => $this->formatTrace($e),
             ];
             $delay = $this->getRetryDelay($job, $handler);
 
@@ -154,6 +153,33 @@ class QueueWorker implements IQueueWorker {
         $delay = array_values($handler->getRetryDelays())[$job->attempts - 1] ?? null;
 
         return ($delay !== null) ? max(0, (int)$delay) : null;
+    }
+
+    /**
+     * Like Throwable::getTraceAsString(), but without the argument values: they can be secrets (e.g. a password of
+     * the payload passed to a connection), and they are logged unless zend.exception_ignore_args is on.
+     */
+    protected function formatTrace(Throwable $e): string {
+        $lines = [];
+
+        foreach ($e->getTrace() as $index => $frame) {
+            $location = isset($frame['file'])
+                ? "{$frame['file']}(" . ($frame['line'] ?? 0) . ')'
+                : '[internal function]';
+            $function = ($frame['class'] ?? '') . ($frame['type'] ?? '') . $frame['function'];
+
+            $lines[] = "#$index $location: $function()";
+        }
+
+        $lines[] = '#' . count($lines) . ' {main}';
+
+        return implode("\n", $lines);
+    }
+
+    protected function getProjectRoot(): string {
+        $root = defined('PROJECT_ROOT') ? constant('PROJECT_ROOT') : getcwd();
+
+        return is_string($root) ? $root : '.';
     }
 
     protected function removeSecrets(JobDTO $job, IJobHandler $handler): void {

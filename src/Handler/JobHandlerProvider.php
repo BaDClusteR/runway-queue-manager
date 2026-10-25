@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Runway\QueueManager\Handler;
 
+use Runway\Exception\ConfigException;
 use Runway\Singleton\Container;
 
 class JobHandlerProvider implements IJobHandlerProvider {
@@ -17,8 +18,32 @@ class JobHandlerProvider implements IJobHandlerProvider {
     ) {}
 
     public function getHandler(string $type): ?IJobHandler {
-        $this->handlers ??= Container::getInstance()->getServicesByTag(static::HANDLER_TAG);
+        $this->handlers ??= $this->getTaggedHandlers();
 
         return array_find($this->handlers, static fn(IJobHandler $handler): bool => $handler->getType() === $type);
+    }
+
+    /**
+     * @return IJobHandler[]
+     *
+     * @throws ConfigException If a service with the tag is not a handler (a configuration error).
+     */
+    protected function getTaggedHandlers(): array {
+        $handlers = [];
+
+        foreach (Container::getInstance()->getServicesByTag(static::HANDLER_TAG) as $service) {
+            if (!$service instanceof IJobHandler) {
+                throw new ConfigException(sprintf(
+                    'A service with the "%s" tag is not a job handler: %s does not implement %s.',
+                    static::HANDLER_TAG,
+                    get_debug_type($service),
+                    IJobHandler::class
+                ));
+            }
+
+            $handlers[] = $service;
+        }
+
+        return $handlers;
     }
 }

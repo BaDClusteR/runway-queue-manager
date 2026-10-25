@@ -18,6 +18,8 @@ services:
     class: Runway\QueueManager\JobQueue
     arguments:
       defaultQueue: '%queue_default'
+      # Removes the secret payload keys of a job cancelled before it starts or failed with its worker.
+      handlerProvider: '@Runway\QueueManager\Handler\IJobHandlerProvider'
 
   Runway\QueueManager\IQueueWorker:
     class: Runway\QueueManager\QueueWorker
