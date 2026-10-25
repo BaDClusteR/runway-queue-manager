@@ -1,0 +1,123 @@
+name: CI
+
+on:
+  push:
+    branches: [main, 1.x]
+  pull_request:
+
+# The actions are pinned to commits (a tag can be moved to other code); Dependabot updates them, see dependabot.yml.
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  tests:
+    name: Tests (PHP ${{ matrix.php }}, ${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # Windows: the worker is not started in the background (no shell for it), the E2E test checks that.
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        php: ['8.4', '8.5']
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # The extensions required by Runway; SQLite for the queue table.
+      - uses: shivammathur/setup-php@eb7c497e18156a6bbabfef1d3a82760b9eda3962 # 2.40.0
+        with:
+          php-version: ${{ matrix.php }}
+          extensions: dom, fileinfo, mbstring, openssl, pdo, pdo_sqlite, simplexml, yaml, zip
+          coverage: none
+
+      - uses: ramsey/composer-install@65e4f84970763564f46a70b8a54b90d033b3bdda # 4.0.0
+
+      # Unit (SQLite in memory), integration (the container in the process) and E2E (the console in processes).
+      - name: Tests
+        run: vendor/bin/phpunit
+
+  mysql:
+    name: Tests (${{ matrix.database }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        database: ['mysql:8.4', 'mariadb:11.8']
+    services:
+      database:
+        image: ${{ matrix.database }}
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: queue_test
+          MARIADB_ROOT_PASSWORD: root
+          MARIADB_DATABASE: queue_test
+        ports:
+          - 3306:3306
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: shivammathur/setup-php@eb7c497e18156a6bbabfef1d3a82760b9eda3962 # 2.40.0
+        with:
+          php-version: '8.5'
+          extensions: dom, fileinfo, mbstring, openssl, pdo, pdo_mysql, pdo_sqlite, simplexml, yaml, zip
+          coverage: none
+
+      - uses: ramsey/composer-install@65e4f84970763564f46a70b8a54b90d033b3bdda # 4.0.0
+
+      - name: Wait for the database
+        run: |
+          for i in $(seq 1 60); do
+            php -r 'new PDO("mysql:host=127.0.0.1;port=3306;dbname=queue_test", "root", "root");' 2>/dev/null && exit 0
+            sleep 2
+          done
+          exit 1
+
+      # The queue tests run on SQLite and on the database (see tests/Fixture/TestStorage.php).
+      - name: Tests
+        run: vendor/bin/phpunit --testsuite unit
+        env:
+          QUEUE_TEST_MYSQL_DSN: mysql:host=127.0.0.1;port=3306;dbname=queue_test
+          QUEUE_TEST_MYSQL_USER: root
+          QUEUE_TEST_MYSQL_PASSWORD: root
+
+  static-analysis:
+    name: Static analysis
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: shivammathur/setup-php@eb7c497e18156a6bbabfef1d3a82760b9eda3962 # 2.40.0
+        with:
+          php-version: '8.5'
+          extensions: dom, fileinfo, mbstring, openssl, pdo, pdo_sqlite, simplexml, yaml, zip
+          coverage: none
+
+      - name: Validate composer.json
+        run: composer validate --strict
+
+      - uses: ramsey/composer-install@65e4f84970763564f46a70b8a54b90d033b3bdda # 4.0.0
+
+      - name: PHPStan
+        run: vendor/bin/phpstan --no-progress --error-format=github
+
+  mutation-testing:
+    name: Mutation testing
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: shivammathur/setup-php@eb7c497e18156a6bbabfef1d3a82760b9eda3962 # 2.40.0
+        with:
+          php-version: '8.5'
+          extensions: dom, fileinfo, mbstring, openssl, pdo, pdo_sqlite, simplexml, yaml, zip
+          coverage: pcov
+
+      - uses: ramsey/composer-install@65e4f84970763564f46a70b8a54b90d033b3bdda # 4.0.0
+
+      # The minimal MSI is in infection.json5; the escaped mutants are shown as annotations.
+      - name: Infection
+        run: vendor/bin/infection --threads=max --no-progress --logger-github
